@@ -201,6 +201,3 @@ function stdDev(arr: number[]) {
   const v = arr.reduce((a, b) => a + (b - m) ** 2, 0) / arr.length;
   return Math.sqrt(v);
 }
-
-// avoid unused import warning when memo not needed
-void useMemo;
