@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { BiometricScanner } from "@/components/BiometricScanner";
 import { StressPulseChart } from "@/components/StressPulseChart";
 import { AudioWaveform } from "@/components/AudioWaveform";
