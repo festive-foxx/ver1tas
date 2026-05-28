@@ -20,16 +20,31 @@ type Phase = "ready" | "scanning" | "analyzing";
 function Interrogation() {
   const navigate = useNavigate();
   const [phase, setPhase] = useState<Phase>("ready");
-  const [question] = useState(
+  const [mode, setMode] = useState<"random" | "custom">("random");
+  const [question, setQuestion] = useState(
     () => SAMPLE_QUESTIONS[Math.floor(Math.random() * SAMPLE_QUESTIONS.length)]
   );
+  const [customQuestion, setCustomQuestion] = useState("");
   const [answer, setAnswer] = useState("");
   const [useMic, setUseMic] = useState(false);
   const [useCam, setUseCam] = useState(false);
   const startedAt = useRef<number>(0);
   const stressSamples = useRef<number[]>([]);
 
+  const rerollQuestion = () => {
+    let next = question;
+    for (let i = 0; i < 5 && next === question; i++) {
+      next = SAMPLE_QUESTIONS[Math.floor(Math.random() * SAMPLE_QUESTIONS.length)];
+    }
+    setQuestion(next);
+  };
+
   const handleStart = () => {
+    if (mode === "custom") {
+      const q = customQuestion.trim();
+      if (!q) return;
+      setQuestion(q);
+    }
     startedAt.current = Date.now();
     stressSamples.current = [];
     setPhase("scanning");
@@ -82,7 +97,11 @@ function Interrogation() {
           {/* Question */}
           <div className="mt-8 text-center">
             <div className="font-mono text-xs tracking-[0.3em] text-muted-foreground">QUERY</div>
-            <h2 className="mt-2 font-display text-2xl sm:text-3xl">{question}</h2>
+            <h2 className="mt-2 font-display text-2xl sm:text-3xl">
+              {phase === "ready" && mode === "custom"
+                ? customQuestion.trim() || "AWAITING CUSTOM QUERY…"
+                : question}
+            </h2>
           </div>
 
           {/* Stress chart */}
@@ -110,6 +129,38 @@ function Interrogation() {
           {/* Controls */}
           {phase === "ready" && (
             <div className="mt-8 space-y-4">
+              <div className="flex flex-wrap items-center justify-center gap-2 text-sm">
+                <Toggle label="RANDOM QUERY" value={mode === "random"} onChange={() => setMode("random")} />
+                <Toggle label="CUSTOM QUERY" value={mode === "custom"} onChange={() => setMode("custom")} />
+              </div>
+
+              {mode === "random" ? (
+                <div className="flex justify-center">
+                  <button
+                    onClick={rerollQuestion}
+                    className="px-4 py-1.5 font-mono text-xs tracking-widest border border-border text-muted-foreground hover:border-[var(--color-scan)] hover:text-[var(--color-scan)] transition-colors"
+                  >
+                    ↻ REROLL QUERY
+                  </button>
+                </div>
+              ) : (
+                <div className="mx-auto max-w-2xl">
+                  <input
+                    type="text"
+                    value={customQuestion}
+                    onChange={(e) => setCustomQuestion(e.target.value)}
+                    maxLength={200}
+                    placeholder="Enter your own interrogation query…"
+                    className="w-full bg-black/40 border border-[var(--color-scan)]/60 rounded-md px-4 py-3
+                               font-mono text-sm focus:outline-none focus:border-[var(--color-truth)]
+                               focus:shadow-[0_0_16px_-4px_var(--color-truth)] transition-shadow"
+                  />
+                  <div className="mt-1 text-right font-mono text-[10px] text-muted-foreground">
+                    {customQuestion.length}/200
+                  </div>
+                </div>
+              )}
+
               <div className="flex flex-wrap items-center justify-center gap-4 text-sm">
                 <Toggle label="ENABLE MIC" value={useMic} onChange={setUseMic} />
                 <Toggle label="ENABLE CAMERA" value={useCam} onChange={setUseCam} />
@@ -117,7 +168,8 @@ function Interrogation() {
               <div className="flex justify-center">
                 <button
                   onClick={handleStart}
-                  className="px-8 py-3 font-display tracking-[0.3em] text-sm border border-[var(--color-truth)] text-[var(--color-truth)] hover:bg-[var(--color-truth)] hover:text-[var(--color-primary-foreground)] transition-colors animate-pulse-glow"
+                  disabled={mode === "custom" && !customQuestion.trim()}
+                  className="px-8 py-3 font-display tracking-[0.3em] text-sm border border-[var(--color-truth)] text-[var(--color-truth)] hover:bg-[var(--color-truth)] hover:text-[var(--color-primary-foreground)] transition-colors animate-pulse-glow disabled:opacity-30 disabled:cursor-not-allowed disabled:animate-none"
                 >
                   BEGIN SCAN
                 </button>
