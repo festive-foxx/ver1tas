@@ -20,16 +20,31 @@ type Phase = "ready" | "scanning" | "analyzing";
 function Interrogation() {
   const navigate = useNavigate();
   const [phase, setPhase] = useState<Phase>("ready");
-  const [question] = useState(
+  const [mode, setMode] = useState<"random" | "custom">("random");
+  const [question, setQuestion] = useState(
     () => SAMPLE_QUESTIONS[Math.floor(Math.random() * SAMPLE_QUESTIONS.length)]
   );
+  const [customQuestion, setCustomQuestion] = useState("");
   const [answer, setAnswer] = useState("");
   const [useMic, setUseMic] = useState(false);
   const [useCam, setUseCam] = useState(false);
   const startedAt = useRef<number>(0);
   const stressSamples = useRef<number[]>([]);
 
+  const rerollQuestion = () => {
+    let next = question;
+    for (let i = 0; i < 5 && next === question; i++) {
+      next = SAMPLE_QUESTIONS[Math.floor(Math.random() * SAMPLE_QUESTIONS.length)];
+    }
+    setQuestion(next);
+  };
+
   const handleStart = () => {
+    if (mode === "custom") {
+      const q = customQuestion.trim();
+      if (!q) return;
+      setQuestion(q);
+    }
     startedAt.current = Date.now();
     stressSamples.current = [];
     setPhase("scanning");
