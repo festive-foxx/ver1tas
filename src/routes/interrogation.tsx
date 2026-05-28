@@ -97,7 +97,11 @@ function Interrogation() {
           {/* Question */}
           <div className="mt-8 text-center">
             <div className="font-mono text-xs tracking-[0.3em] text-muted-foreground">QUERY</div>
-            <h2 className="mt-2 font-display text-2xl sm:text-3xl">{question}</h2>
+            <h2 className="mt-2 font-display text-2xl sm:text-3xl">
+              {phase === "ready" && mode === "custom"
+                ? customQuestion.trim() || "AWAITING CUSTOM QUERY…"
+                : question}
+            </h2>
           </div>
 
           {/* Stress chart */}
