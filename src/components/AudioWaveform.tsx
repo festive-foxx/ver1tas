@@ -6,7 +6,14 @@ import { useEffect, useRef, useState } from "react";
  * time-domain signal (actual wave shape) plus a frequency-bar overlay.
  * Falls back to a simulated waveform only when the mic is denied/unavailable.
  */
-export function AudioWaveform({ active }: { active: boolean }) {
+export function AudioWaveform({
+  active,
+  onLevel,
+}: {
+  active: boolean;
+  /** Reports normalized RMS amplitude (0..1) per animation frame. */
+  onLevel?: (level: number) => void;
+}) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [micState, setMicState] = useState<"idle" | "live" | "denied">("idle");
 
