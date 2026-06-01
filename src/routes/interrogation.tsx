@@ -205,7 +205,7 @@ function Interrogation() {
               <textarea
                 autoFocus
                 value={answer}
-                onChange={(e) => setAnswer(e.target.value)}
+                onChange={(e) => handleAnswerChange(e.target.value)}
                 placeholder="Type your answer. Hesitation is recorded."
                 className="w-full min-h-28 bg-black/40 border border-[var(--color-scan)]/60 rounded-md p-4
                            font-mono text-sm focus:outline-none focus:border-[var(--color-truth)]
