@@ -62,8 +62,7 @@ export function computeResult(opts: {
   // aren't punished as harshly as a long silence before a one-word reply.
   const expectedMs = 1500 + wordCount * 350; // a fair time budget to answer
   const overrun = Math.max(0, latencyMs - expectedMs);
-  const hesitationLevel = Math.min(100, Math.round((overrun / 9000) * 100));
-  const hesitationPenalty = Math.min(38, (overrun / 250));
+  const hesitationPenalty = Math.min(38, overrun / 250);
 
   // --- Stress: combine volatility (std dev) with how elevated the baseline is.
   const mean =
