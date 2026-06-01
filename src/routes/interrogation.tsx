@@ -30,6 +30,10 @@ function Interrogation() {
   const [useCam, setUseCam] = useState(false);
   const startedAt = useRef<number>(0);
   const stressSamples = useRef<number[]>([]);
+  const voiceSamples = useRef<number[]>([]);
+  const keystrokeGaps = useRef<number[]>([]);
+  const lastKeystroke = useRef<number>(0);
+  const [activitySignal, setActivitySignal] = useState(0);
 
   const rerollQuestion = () => {
     let next = question;
