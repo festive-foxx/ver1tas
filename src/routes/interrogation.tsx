@@ -51,7 +51,20 @@ function Interrogation() {
     }
     startedAt.current = Date.now();
     stressSamples.current = [];
+    voiceSamples.current = [];
+    keystrokeGaps.current = [];
+    lastKeystroke.current = 0;
     setPhase("scanning");
+  };
+
+  const handleAnswerChange = (value: string) => {
+    const now = Date.now();
+    if (lastKeystroke.current) {
+      keystrokeGaps.current.push(now - lastKeystroke.current);
+    }
+    lastKeystroke.current = now;
+    setActivitySignal((n) => n + 1);
+    setAnswer(value);
   };
 
   const handleSubmit = () => {
@@ -65,6 +78,8 @@ function Interrogation() {
         answer,
         latencyMs,
         stressSamples: stressSamples.current,
+        voiceSamples: voiceSamples.current,
+        keystrokeGaps: keystrokeGaps.current,
       });
       const id = crypto.randomUUID();
       saveRecord({ id, createdAt: Date.now(), ...result });
