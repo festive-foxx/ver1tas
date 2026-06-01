@@ -30,6 +30,10 @@ function Interrogation() {
   const [useCam, setUseCam] = useState(false);
   const startedAt = useRef<number>(0);
   const stressSamples = useRef<number[]>([]);
+  const voiceSamples = useRef<number[]>([]);
+  const keystrokeGaps = useRef<number[]>([]);
+  const lastKeystroke = useRef<number>(0);
+  const [activitySignal, setActivitySignal] = useState(0);
 
   const rerollQuestion = () => {
     let next = question;
@@ -47,7 +51,20 @@ function Interrogation() {
     }
     startedAt.current = Date.now();
     stressSamples.current = [];
+    voiceSamples.current = [];
+    keystrokeGaps.current = [];
+    lastKeystroke.current = 0;
     setPhase("scanning");
+  };
+
+  const handleAnswerChange = (value: string) => {
+    const now = Date.now();
+    if (lastKeystroke.current) {
+      keystrokeGaps.current.push(now - lastKeystroke.current);
+    }
+    lastKeystroke.current = now;
+    setActivitySignal((n) => n + 1);
+    setAnswer(value);
   };
 
   const handleSubmit = () => {
@@ -61,6 +78,8 @@ function Interrogation() {
         answer,
         latencyMs,
         stressSamples: stressSamples.current,
+        voiceSamples: voiceSamples.current,
+        keystrokeGaps: keystrokeGaps.current,
       });
       const id = crypto.randomUUID();
       saveRecord({ id, createdAt: Date.now(), ...result });
@@ -114,6 +133,7 @@ function Interrogation() {
             </div>
             <StressPulseChart
               active={phase === "scanning"}
+              activitySignal={activitySignal}
               onSample={(v) => stressSamples.current.push(v)}
             />
           </div>
@@ -122,7 +142,10 @@ function Interrogation() {
           {useMic && phase !== "ready" && (
             <div className="mt-4">
               <div className="font-mono text-xs text-muted-foreground mb-1">VOICE SPECTRUM</div>
-              <AudioWaveform active={phase === "scanning"} />
+              <AudioWaveform
+                active={phase === "scanning"}
+                onLevel={(l) => voiceSamples.current.push(l)}
+              />
             </div>
           )}
 
@@ -182,7 +205,7 @@ function Interrogation() {
               <textarea
                 autoFocus
                 value={answer}
-                onChange={(e) => setAnswer(e.target.value)}
+                onChange={(e) => handleAnswerChange(e.target.value)}
                 placeholder="Type your answer. Hesitation is recorded."
                 className="w-full min-h-28 bg-black/40 border border-[var(--color-scan)]/60 rounded-md p-4
                            font-mono text-sm focus:outline-none focus:border-[var(--color-truth)]

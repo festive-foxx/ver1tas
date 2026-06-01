@@ -6,9 +6,18 @@ import { useEffect, useRef, useState } from "react";
  * time-domain signal (actual wave shape) plus a frequency-bar overlay.
  * Falls back to a simulated waveform only when the mic is denied/unavailable.
  */
-export function AudioWaveform({ active }: { active: boolean }) {
+export function AudioWaveform({
+  active,
+  onLevel,
+}: {
+  active: boolean;
+  /** Reports normalized RMS amplitude (0..1) per animation frame. */
+  onLevel?: (level: number) => void;
+}) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [micState, setMicState] = useState<"idle" | "live" | "denied">("idle");
+  const onLevelRef = useRef(onLevel);
+  onLevelRef.current = onLevel;
 
   useEffect(() => {
     if (!active) return;
@@ -70,6 +79,15 @@ export function AudioWaveform({ active }: { active: boolean }) {
       analyser.getByteFrequencyData(
         freqArr as unknown as Uint8Array<ArrayBuffer>
       );
+      // Report real RMS amplitude (0..1) for downstream voice-tremor analysis.
+      if (onLevelRef.current) {
+        let sumSq = 0;
+        for (let i = 0; i < timeArr.length; i++) {
+          const v = timeArr[i] / 128 - 1;
+          sumSq += v * v;
+        }
+        onLevelRef.current(Math.sqrt(sumSq / timeArr.length));
+      }
       paint(cx, c.width, c.height, timeArr, freqArr);
       raf = requestAnimationFrame(drawLive);
     }
