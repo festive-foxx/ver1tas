@@ -133,6 +133,7 @@ function Interrogation() {
             </div>
             <StressPulseChart
               active={phase === "scanning"}
+              activitySignal={activitySignal}
               onSample={(v) => stressSamples.current.push(v)}
             />
           </div>
@@ -141,7 +142,10 @@ function Interrogation() {
           {useMic && phase !== "ready" && (
             <div className="mt-4">
               <div className="font-mono text-xs text-muted-foreground mb-1">VOICE SPECTRUM</div>
-              <AudioWaveform active={phase === "scanning"} />
+              <AudioWaveform
+                active={phase === "scanning"}
+                onLevel={(l) => voiceSamples.current.push(l)}
+              />
             </div>
           )}
 
