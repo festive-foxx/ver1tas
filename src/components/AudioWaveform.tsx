@@ -16,6 +16,8 @@ export function AudioWaveform({
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [micState, setMicState] = useState<"idle" | "live" | "denied">("idle");
+  const onLevelRef = useRef(onLevel);
+  onLevelRef.current = onLevel;
 
   useEffect(() => {
     if (!active) return;
