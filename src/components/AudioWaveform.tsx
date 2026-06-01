@@ -79,6 +79,15 @@ export function AudioWaveform({
       analyser.getByteFrequencyData(
         freqArr as unknown as Uint8Array<ArrayBuffer>
       );
+      // Report real RMS amplitude (0..1) for downstream voice-tremor analysis.
+      if (onLevelRef.current) {
+        let sumSq = 0;
+        for (let i = 0; i < timeArr.length; i++) {
+          const v = timeArr[i] / 128 - 1;
+          sumSq += v * v;
+        }
+        onLevelRef.current(Math.sqrt(sumSq / timeArr.length));
+      }
       paint(cx, c.width, c.height, timeArr, freqArr);
       raf = requestAnimationFrame(drawLive);
     }
