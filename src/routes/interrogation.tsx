@@ -1,6 +1,5 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
-import { BiometricScanner } from "@/components/BiometricScanner";
 import { StressPulseChart } from "@/components/StressPulseChart";
 import { AudioWaveform } from "@/components/AudioWaveform";
 import { SAMPLE_QUESTIONS, computeResult, saveRecord } from "@/lib/veritas";
@@ -9,13 +8,16 @@ export const Route = createFileRoute("/interrogation")({
   head: () => ({
     meta: [
       { title: "Interrogation — Veritas" },
-      { name: "description", content: "Active biometric scan in progress." },
+      { name: "description", content: "Active voice polygraph scan in progress." },
     ],
   }),
   component: Interrogation,
 });
 
 type Phase = "ready" | "scanning" | "analyzing";
+
+// Amplitude above this (0..1 RMS) counts as the subject actually speaking.
+const VOICE_GATE = 0.02;
 
 function Interrogation() {
   const navigate = useNavigate();
@@ -25,14 +27,13 @@ function Interrogation() {
     () => SAMPLE_QUESTIONS[Math.floor(Math.random() * SAMPLE_QUESTIONS.length)]
   );
   const [customQuestion, setCustomQuestion] = useState("");
-  const [answer, setAnswer] = useState("");
-  const [useMic, setUseMic] = useState(false);
-  const [useCam, setUseCam] = useState(false);
+  const [speaking, setSpeaking] = useState(false);
+
   const startedAt = useRef<number>(0);
-  const stressSamples = useRef<number[]>([]);
   const voiceSamples = useRef<number[]>([]);
-  const keystrokeGaps = useRef<number[]>([]);
-  const lastKeystroke = useRef<number>(0);
+  const firstSpeechAt = useRef<number>(0);
+  const speakingMs = useRef<number>(0);
+  const lastVoiceFrameAt = useRef<number>(0);
   const [activitySignal, setActivitySignal] = useState(0);
 
   const rerollQuestion = () => {
@@ -50,36 +51,42 @@ function Interrogation() {
       setQuestion(q);
     }
     startedAt.current = Date.now();
-    stressSamples.current = [];
     voiceSamples.current = [];
-    keystrokeGaps.current = [];
-    lastKeystroke.current = 0;
+    firstSpeechAt.current = 0;
+    speakingMs.current = 0;
+    lastVoiceFrameAt.current = 0;
+    setSpeaking(false);
     setPhase("scanning");
   };
 
-  const handleAnswerChange = (value: string) => {
+  const handleLevel = (level: number) => {
+    voiceSamples.current.push(level);
     const now = Date.now();
-    if (lastKeystroke.current) {
-      keystrokeGaps.current.push(now - lastKeystroke.current);
+    if (level > VOICE_GATE) {
+      if (!firstSpeechAt.current) firstSpeechAt.current = now;
+      // accumulate voiced time using gaps between consecutive voiced frames
+      if (lastVoiceFrameAt.current && now - lastVoiceFrameAt.current < 400) {
+        speakingMs.current += now - lastVoiceFrameAt.current;
+      }
+      lastVoiceFrameAt.current = now;
+      setSpeaking(true);
+      setActivitySignal((n) => n + 1);
+    } else {
+      setSpeaking(false);
     }
-    lastKeystroke.current = now;
-    setActivitySignal((n) => n + 1);
-    setAnswer(value);
   };
 
   const handleSubmit = () => {
-    if (!answer.trim()) return;
-    const latencyMs = Date.now() - startedAt.current;
+    const latencyMs = firstSpeechAt.current
+      ? firstSpeechAt.current - startedAt.current
+      : Date.now() - startedAt.current;
     setPhase("analyzing");
-    // dramatic delay
     setTimeout(() => {
       const result = computeResult({
         question,
-        answer,
         latencyMs,
-        stressSamples: stressSamples.current,
         voiceSamples: voiceSamples.current,
-        keystrokeGaps: keystrokeGaps.current,
+        speakingMs: speakingMs.current,
       });
       const id = crypto.randomUUID();
       saveRecord({ id, createdAt: Date.now(), ...result });
@@ -107,10 +114,7 @@ function Interrogation() {
         {/* Scanner */}
         <div className="mt-8 panel rounded-lg p-6 sm:p-10">
           <div className="text-center font-display tracking-[0.4em] text-xs text-[var(--color-scan)]">
-            BIOMETRIC SCAN ACTIVE
-          </div>
-          <div className="mt-6">
-            <BiometricScanner enableCamera={useCam && phase !== "ready"} />
+            VOICE POLYGRAPH ACTIVE
           </div>
 
           {/* Question */}
@@ -123,29 +127,29 @@ function Interrogation() {
             </h2>
           </div>
 
-          {/* Stress chart */}
-          <div className="mt-6">
+          {/* Vocal stress chart (driven by voice activity) */}
+          <div className="mt-8">
             <div className="flex justify-between font-mono text-xs text-muted-foreground mb-1">
-              <span>STRESS PULSE</span>
-              <span>
-                T+{(elapsed / 1000).toFixed(1)}s · σ {Math.round(stdDev(stressSamples.current))}
-              </span>
+              <span>VOCAL STRESS</span>
+              <span>T+{(elapsed / 1000).toFixed(1)}s</span>
             </div>
             <StressPulseChart
               active={phase === "scanning"}
               activitySignal={activitySignal}
-              onSample={(v) => stressSamples.current.push(v)}
+              onSample={() => {}}
             />
           </div>
 
-          {/* Audio */}
-          {useMic && phase !== "ready" && (
+          {/* Audio (always on once scanning — voice is the only sensor) */}
+          {phase !== "ready" && (
             <div className="mt-4">
-              <div className="font-mono text-xs text-muted-foreground mb-1">VOICE SPECTRUM</div>
-              <AudioWaveform
-                active={phase === "scanning"}
-                onLevel={(l) => voiceSamples.current.push(l)}
-              />
+              <div className="flex justify-between font-mono text-xs text-muted-foreground mb-1">
+                <span>VOICE SPECTRUM</span>
+                <span className={speaking ? "text-[var(--color-truth)]" : "text-muted-foreground"}>
+                  {speaking ? "● VOICE DETECTED" : "○ LISTENING…"}
+                </span>
+              </div>
+              <AudioWaveform active={phase === "scanning"} onLevel={handleLevel} />
             </div>
           )}
 
@@ -184,10 +188,10 @@ function Interrogation() {
                 </div>
               )}
 
-              <div className="flex flex-wrap items-center justify-center gap-4 text-sm">
-                <Toggle label="ENABLE MIC" value={useMic} onChange={setUseMic} />
-                <Toggle label="ENABLE CAMERA" value={useCam} onChange={setUseCam} />
-              </div>
+              <p className="text-center font-mono text-xs text-muted-foreground">
+                This is a voice-only polygraph. Allow microphone access and speak your answer aloud.
+              </p>
+
               <div className="flex justify-center">
                 <button
                   onClick={handleStart}
@@ -201,23 +205,19 @@ function Interrogation() {
           )}
 
           {phase === "scanning" && (
-            <div className="mt-8 space-y-4">
-              <textarea
-                autoFocus
-                value={answer}
-                onChange={(e) => handleAnswerChange(e.target.value)}
-                placeholder="Type your answer. Hesitation is recorded."
-                className="w-full min-h-28 bg-black/40 border border-[var(--color-scan)]/60 rounded-md p-4
-                           font-mono text-sm focus:outline-none focus:border-[var(--color-truth)]
-                           focus:shadow-[0_0_16px_-4px_var(--color-truth)] transition-shadow"
-              />
-              <div className="flex justify-end">
+            <div className="mt-8 space-y-4 text-center">
+              <div className="font-display tracking-[0.3em] text-sm text-[var(--color-scan)] animate-flicker">
+                🎙 SPEAK YOUR ANSWER ALOUD
+              </div>
+              <div className="font-mono text-xs text-muted-foreground">
+                Voiced: {(speakingMs.current / 1000).toFixed(1)}s
+              </div>
+              <div className="flex justify-center">
                 <button
                   onClick={handleSubmit}
-                  disabled={!answer.trim()}
-                  className="px-8 py-3 font-display tracking-[0.3em] text-sm border border-[var(--color-truth)] text-[var(--color-truth)] hover:bg-[var(--color-truth)] hover:text-[var(--color-primary-foreground)] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                  className="px-8 py-3 font-display tracking-[0.3em] text-sm border border-[var(--color-truth)] text-[var(--color-truth)] hover:bg-[var(--color-truth)] hover:text-[var(--color-primary-foreground)] transition-colors"
                 >
-                  SUBMIT ANSWER →
+                  ANALYZE VOICE →
                 </button>
               </div>
             </div>
@@ -226,7 +226,7 @@ function Interrogation() {
           {phase === "analyzing" && (
             <div className="mt-8 text-center">
               <div className="font-display tracking-[0.4em] text-sm text-[var(--color-scan)] animate-flicker">
-                ANALYZING BIOMETRIC SIGNATURE…
+                ANALYZING VOCAL SIGNATURE…
               </div>
               <div className="mt-4 flex justify-center gap-2">
                 {[0, 1, 2].map((i) => (
@@ -268,11 +268,4 @@ function useElapsed(start: number) {
     return () => clearInterval(id);
   }, [start]);
   return now;
-}
-
-function stdDev(arr: number[]) {
-  if (arr.length < 2) return 0;
-  const m = arr.reduce((a, b) => a + b, 0) / arr.length;
-  const v = arr.reduce((a, b) => a + (b - m) ** 2, 0) / arr.length;
-  return Math.sqrt(v);
 }
