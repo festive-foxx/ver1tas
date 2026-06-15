@@ -36,98 +36,92 @@ export function clearHistory() {
   localStorage.removeItem(KEY);
 }
 
+/**
+ * Voice-only polygraph analysis. Every metric is derived purely from the
+ * captured microphone amplitude envelope — there is no text input.
+ *
+ * - `latencyMs`     time from question shown to first detected speech
+ * - `voiceSamples`  per-frame RMS amplitude (0..1) for the whole session
+ * - `speakingMs`    total duration the subject was actually vocalizing
+ */
 export function computeResult(opts: {
   question: string;
-  answer: string;
   latencyMs: number;
-  stressSamples: number[];
-  /** Real per-frame microphone amplitude samples (0..1). Optional. */
-  voiceSamples?: number[];
-  /** Inter-keystroke gaps in ms while typing the answer. Optional. */
-  keystrokeGaps?: number[];
+  voiceSamples: number[];
+  speakingMs: number;
 }): Omit<TruthRecord, "id" | "createdAt"> {
-  const {
-    question,
-    answer,
-    latencyMs,
-    stressSamples,
-    voiceSamples = [],
-    keystrokeGaps = [],
-  } = opts;
+  const { question, latencyMs, voiceSamples, speakingMs } = opts;
 
-  const trimmed = answer.trim();
-  const wordCount = trimmed ? trimmed.split(/\s+/).length : 0;
+  // Only count frames with real vocal energy as "voiced".
+  const VOICE_GATE = 0.02;
+  const voiced = voiceSamples.filter((v) => v > VOICE_GATE);
 
-  // --- Hesitation: scaled by answer length so long, thoughtful answers
-  // aren't punished as harshly as a long silence before a one-word reply.
-  const expectedMs = 1500 + wordCount * 350; // a fair time budget to answer
-  const overrun = Math.max(0, latencyMs - expectedMs);
-  const hesitationPenalty = Math.min(38, overrun / 250);
-
-  // --- Stress: combine volatility (std dev) with how elevated the baseline is.
-  const mean =
-    stressSamples.reduce((a, b) => a + b, 0) / (stressSamples.length || 1);
-  const variance =
-    stressSamples.reduce((a, b) => a + (b - mean) ** 2, 0) /
-    (stressSamples.length || 1);
-  const stdDev = Math.sqrt(variance);
-  const elevation = Math.max(0, mean - 50); // sustained high stress
-  const stressFluctuations = Math.min(
-    100,
-    Math.round(stdDev * 1.8 + elevation * 0.6)
-  );
-
-  // --- Voice tremor from REAL mic amplitude jitter when available.
-  // Tremor = relative variability of amplitude (coefficient of variation).
-  let voiceTremor: number;
-  if (voiceSamples.length >= 8) {
-    const vMean =
-      voiceSamples.reduce((a, b) => a + b, 0) / voiceSamples.length;
+  // --- Voice tremor: relative variability of vocal amplitude
+  // (coefficient of variation). Shaky, uneven delivery -> higher tremor.
+  let voiceTremor = 0;
+  if (voiced.length >= 8) {
+    const vMean = voiced.reduce((a, b) => a + b, 0) / voiced.length;
     const vVar =
-      voiceSamples.reduce((a, b) => a + (b - vMean) ** 2, 0) /
-      voiceSamples.length;
+      voiced.reduce((a, b) => a + (b - vMean) ** 2, 0) / voiced.length;
     const cv = vMean > 0.001 ? Math.sqrt(vVar) / vMean : 0;
-    voiceTremor = Math.min(100, Math.round(cv * 90));
-  } else {
-    // No usable mic data: derive a conservative estimate from stress.
-    voiceTremor = Math.min(100, Math.round(stressFluctuations * 0.7));
+    voiceTremor = Math.min(100, Math.round(cv * 85));
   }
 
-  // --- Typing rhythm: long pauses / erratic gaps mid-answer signal hesitation.
-  let rhythmPenalty = 0;
-  if (keystrokeGaps.length >= 4) {
-    const longPauses = keystrokeGaps.filter((g) => g > 1500).length;
-    const kMean =
-      keystrokeGaps.reduce((a, b) => a + b, 0) / keystrokeGaps.length;
-    const kVar =
-      keystrokeGaps.reduce((a, b) => a + (b - kMean) ** 2, 0) /
-      keystrokeGaps.length;
-    const kStd = Math.sqrt(kVar);
-    rhythmPenalty = Math.min(15, longPauses * 4 + kStd / 400);
+  // --- Vocal stress: micro-jitter between consecutive frames. Tense voices
+  // produce rapid frame-to-frame amplitude swings.
+  let microJitter = 0;
+  if (voiced.length >= 8) {
+    let sum = 0;
+    for (let i = 1; i < voiced.length; i++) {
+      sum += Math.abs(voiced[i] - voiced[i - 1]);
+    }
+    microJitter = sum / (voiced.length - 1);
   }
+  const stressFluctuations = Math.min(100, Math.round(microJitter * 1400));
 
-  // --- Answer substance: very short / empty answers are less credible.
-  const lengthPenalty = wordCount === 0 ? 20 : wordCount < 2 ? 12 : wordCount < 4 ? 5 : 0;
+  // --- Hesitation: slow to start speaking + lots of silent gaps mid-answer.
+  const latencyPenalty = Math.min(34, Math.max(0, latencyMs - 1200) / 220);
+  const silenceRatio =
+    voiceSamples.length > 0
+      ? 1 - voiced.length / voiceSamples.length
+      : 1;
+  const silencePenalty = Math.min(16, Math.max(0, silenceRatio - 0.35) * 40);
 
-  // --- Reduced random variance: the result is now mostly behavior-driven.
-  const jitter = (Math.random() - 0.5) * 8;
+  // --- Substance: a too-short spoken answer is treated as evasive.
+  const substancePenalty =
+    speakingMs < 400 ? 24 : speakingMs < 900 ? 12 : speakingMs < 1600 ? 5 : 0;
+
+  // No usable voice at all -> the polygraph cannot clear the subject.
+  if (voiced.length < 6) {
+    return {
+      question,
+      answer: "[No vocal response detected]",
+      truthScore: 8,
+      voiceTremor: 0,
+      latencyMs,
+      stressFluctuations: 0,
+      verdict:
+        "VERDICT: Inconclusive. No vocal response was captured — speak your answer aloud during the scan.",
+    };
+  }
 
   let score =
-    92 -
-    hesitationPenalty -
-    stressFluctuations * 0.42 -
-    voiceTremor * 0.18 -
-    rhythmPenalty -
-    lengthPenalty +
-    jitter;
+    94 -
+    voiceTremor * 0.42 -
+    stressFluctuations * 0.34 -
+    latencyPenalty -
+    silencePenalty -
+    substancePenalty;
   score = Math.max(3, Math.min(99, Math.round(score)));
 
+  const answer = `[Spoken response · ${(speakingMs / 1000).toFixed(1)}s voiced]`;
+
   let verdict = "";
-  if (score >= 80) verdict = "VERDICT: Highly Credible. Biometric signature remained stable throughout the scan.";
-  else if (score >= 60) verdict = "VERDICT: Likely Truthful. Minor stress spikes detected — possibly nerves.";
-  else if (score >= 40) verdict = "VERDICT: Inconclusive. Mixed signals across stress and latency vectors.";
-  else if (score >= 20) verdict = "VERDICT: Deceptive. Significant hesitation and stress fluctuation detected.";
-  else verdict = "VERDICT: Critical Deception. Subject exhibits all known indicators of fabrication.";
+  if (score >= 80) verdict = "VERDICT: Highly Credible. Vocal signature remained steady throughout the scan.";
+  else if (score >= 60) verdict = "VERDICT: Likely Truthful. Minor vocal stress detected — possibly nerves.";
+  else if (score >= 40) verdict = "VERDICT: Inconclusive. Mixed vocal stress and hesitation markers.";
+  else if (score >= 20) verdict = "VERDICT: Deceptive. Significant vocal tremor and hesitation detected.";
+  else verdict = "VERDICT: Critical Deception. Voice exhibits all known indicators of fabrication.";
 
   return {
     question,
