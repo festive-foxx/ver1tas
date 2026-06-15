@@ -130,7 +130,7 @@ function Results() {
           >
             <MiniStat label="HESITATION" value={hesitationLevel} color={rec.latencyMs > 4000 ? "var(--color-lie)" : "var(--color-truth)"} />
             <MiniStat label="STRESS LEVEL" value={stressLevel} color={rec.stressFluctuations > 25 ? "var(--color-lie)" : "var(--color-truth)"} />
-            <MiniStat label="ANSWER LENGTH" value={`${rec.answer.length} chars`} color="var(--color-scan)" />
+            <MiniStat label="VOICE TREMOR" value={`${rec.voiceTremor}/100`} color={rec.voiceTremor > 40 ? "var(--color-lie)" : "var(--color-truth)"} />
             <MiniStat label="SCAN ID" value={`#${id.slice(0, 8).toUpperCase()}`} color="var(--color-scan)" />
           </div>
 
