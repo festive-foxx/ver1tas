@@ -14,10 +14,12 @@ export const Route = createFileRoute("/interrogation")({
   component: Interrogation,
 });
 
-type Phase = "ready" | "scanning" | "analyzing";
+type Phase = "ready" | "calibrating" | "scanning" | "analyzing";
 
 // Amplitude above this (0..1 RMS) counts as the subject actually speaking.
 const VOICE_GATE = 0.02;
+const CONSENT_KEY = "veritas.consent.v1";
+const CALIBRATION_MS = 4000;
 
 function Interrogation() {
   const navigate = useNavigate();
@@ -29,12 +31,30 @@ function Interrogation() {
   const [customQuestion, setCustomQuestion] = useState("");
   const [speaking, setSpeaking] = useState(false);
 
+  // Privacy consent gate
+  const [consentOpen, setConsentOpen] = useState(false);
+  const consentedRef = useRef(false);
+
+  // Calibration
+  const [calibProgress, setCalibProgress] = useState(0);
+  const calibSamples = useRef<number[]>([]);
+  const calibStartedAt = useRef<number>(0);
+  const noiseFloor = useRef<number>(0);
+
   const startedAt = useRef<number>(0);
   const voiceSamples = useRef<number[]>([]);
   const firstSpeechAt = useRef<number>(0);
   const speakingMs = useRef<number>(0);
   const lastVoiceFrameAt = useRef<number>(0);
   const [activitySignal, setActivitySignal] = useState(0);
+
+  useEffect(() => {
+    try {
+      consentedRef.current = localStorage.getItem(CONSENT_KEY) === "true";
+    } catch {
+      /* noop */
+    }
+  }, []);
 
   const rerollQuestion = () => {
     let next = question;
@@ -44,12 +64,43 @@ function Interrogation() {
     setQuestion(next);
   };
 
-  const handleStart = () => {
+  // Called by BEGIN SCAN — gate on consent first, then calibrate.
+  const requestScan = () => {
     if (mode === "custom") {
       const q = customQuestion.trim();
       if (!q) return;
       setQuestion(q);
     }
+    if (!consentedRef.current) {
+      setConsentOpen(true);
+      return;
+    }
+    beginCalibration();
+  };
+
+  const acceptConsent = () => {
+    consentedRef.current = true;
+    try {
+      localStorage.setItem(CONSENT_KEY, "true");
+    } catch {
+      /* noop */
+    }
+    setConsentOpen(false);
+    beginCalibration();
+  };
+
+  const beginCalibration = () => {
+    calibSamples.current = [];
+    calibStartedAt.current = Date.now();
+    setCalibProgress(0);
+    noiseFloor.current = 0;
+    setPhase("calibrating");
+  };
+
+  const finishCalibration = () => {
+    const s = calibSamples.current;
+    noiseFloor.current =
+      s.length > 0 ? s.reduce((a, b) => a + b, 0) / s.length : 0;
     startedAt.current = Date.now();
     voiceSamples.current = [];
     firstSpeechAt.current = 0;
@@ -59,12 +110,21 @@ function Interrogation() {
     setPhase("scanning");
   };
 
+  const handleCalibLevel = (level: number) => {
+    calibSamples.current.push(level);
+    const pct = Math.min(100, ((Date.now() - calibStartedAt.current) / CALIBRATION_MS) * 100);
+    setCalibProgress(pct);
+    if (pct >= 100) finishCalibration();
+  };
+
   const handleLevel = (level: number) => {
-    voiceSamples.current.push(level);
+    // Subtract the calibrated ambient noise floor so quiet rooms and noisy
+    // rooms are measured against the same baseline.
+    const adj = Math.max(0, level - noiseFloor.current);
+    voiceSamples.current.push(adj);
     const now = Date.now();
-    if (level > VOICE_GATE) {
+    if (adj > VOICE_GATE) {
       if (!firstSpeechAt.current) firstSpeechAt.current = now;
-      // accumulate voiced time using gaps between consecutive voiced frames
       if (lastVoiceFrameAt.current && now - lastVoiceFrameAt.current < 400) {
         speakingMs.current += now - lastVoiceFrameAt.current;
       }
@@ -98,6 +158,12 @@ function Interrogation() {
 
   return (
     <div className="min-h-screen px-4 py-10">
+      <ConsentModal
+        open={consentOpen}
+        onAccept={acceptConsent}
+        onCancel={() => setConsentOpen(false)}
+      />
+
       <div className="mx-auto max-w-4xl">
         {/* Topbar */}
         <div className="flex items-center justify-between">
@@ -140,16 +206,23 @@ function Interrogation() {
             />
           </div>
 
-          {/* Audio (always on once scanning — voice is the only sensor) */}
+          {/* Audio (on during calibration + scanning) */}
           {phase !== "ready" && (
             <div className="mt-4">
               <div className="flex justify-between font-mono text-xs text-muted-foreground mb-1">
                 <span>VOICE SPECTRUM</span>
-                <span className={speaking ? "text-[var(--color-truth)]" : "text-muted-foreground"}>
-                  {speaking ? "● VOICE DETECTED" : "○ LISTENING…"}
-                </span>
+                {phase === "calibrating" ? (
+                  <span className="text-[var(--color-scan)]">◐ CALIBRATING</span>
+                ) : (
+                  <span className={speaking ? "text-[var(--color-truth)]" : "text-muted-foreground"}>
+                    {speaking ? "● VOICE DETECTED" : "○ LISTENING…"}
+                  </span>
+                )}
               </div>
-              <AudioWaveform active={phase === "scanning"} onLevel={handleLevel} />
+              <AudioWaveform
+                active={phase === "calibrating" || phase === "scanning"}
+                onLevel={phase === "calibrating" ? handleCalibLevel : handleLevel}
+              />
             </div>
           )}
 
@@ -189,17 +262,37 @@ function Interrogation() {
               )}
 
               <p className="text-center font-mono text-xs text-muted-foreground">
-                This is a voice-only polygraph. Allow microphone access and speak your answer aloud.
+                This is a voice-only polygraph. Audio is analyzed on-device — nothing is uploaded.
               </p>
 
               <div className="flex justify-center">
                 <button
-                  onClick={handleStart}
+                  onClick={requestScan}
                   disabled={mode === "custom" && !customQuestion.trim()}
                   className="px-8 py-3 font-display tracking-[0.3em] text-sm border border-[var(--color-truth)] text-[var(--color-truth)] hover:bg-[var(--color-truth)] hover:text-[var(--color-primary-foreground)] transition-colors animate-pulse-glow disabled:opacity-30 disabled:cursor-not-allowed disabled:animate-none"
                 >
                   BEGIN SCAN
                 </button>
+              </div>
+            </div>
+          )}
+
+          {phase === "calibrating" && (
+            <div className="mt-8 space-y-4 text-center">
+              <div className="font-display tracking-[0.3em] text-sm text-[var(--color-scan)] animate-flicker">
+                CALIBRATING MICROPHONE — STAY SILENT
+              </div>
+              <p className="font-mono text-xs text-muted-foreground">
+                Measuring your ambient noise floor to zero the sensor.
+              </p>
+              <div className="mx-auto max-w-md h-2 rounded-full bg-black/50 border border-[var(--color-scan)]/30 overflow-hidden">
+                <div
+                  className="h-full bg-[var(--color-scan)] transition-[width] duration-100"
+                  style={{ width: `${calibProgress}%` }}
+                />
+              </div>
+              <div className="font-mono text-xs text-[var(--color-scan)]">
+                {Math.round(calibProgress)}%
               </div>
             </div>
           )}
@@ -239,6 +332,73 @@ function Interrogation() {
               </div>
             </div>
           )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ConsentModal({
+  open,
+  onAccept,
+  onCancel,
+}: {
+  open: boolean;
+  onAccept: () => void;
+  onCancel: () => void;
+}) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div
+        className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+        onClick={onCancel}
+      />
+      <div className="relative panel rounded-lg border border-[var(--color-scan)]/50 max-w-lg w-full p-6 sm:p-8">
+        <div className="font-display tracking-[0.3em] text-xs text-[var(--color-scan)]">
+          PRIVACY & CONSENT
+        </div>
+        <h3 className="mt-3 font-display text-xl">Microphone access required</h3>
+
+        <div className="mt-4 space-y-3 text-sm text-muted-foreground font-mono leading-relaxed">
+          <p className="flex gap-2">
+            <span className="text-[var(--color-truth)]">●</span>
+            <span>
+              Your audio is processed <span className="text-[var(--color-truth)]">entirely on your device</span>.
+              The waveform and score are computed in your browser.
+            </span>
+          </p>
+          <p className="flex gap-2">
+            <span className="text-[var(--color-truth)]">●</span>
+            <span>
+              <span className="text-[var(--color-truth)]">Nothing is recorded, saved, or uploaded</span> to
+              any server — only the final numeric score is stored locally in your browser history.
+            </span>
+          </p>
+          <p className="flex gap-2">
+            <span className="text-[var(--color-truth)]">●</span>
+            <span>
+              You can revoke microphone access at any time via your browser and abort the scan.
+            </span>
+          </p>
+          <p className="text-[11px] text-muted-foreground/70">
+            Veritas is a playful, for-entertainment simulator and not a real lie detector.
+          </p>
+        </div>
+
+        <div className="mt-6 flex flex-col-reverse sm:flex-row sm:justify-end gap-3">
+          <button
+            onClick={onCancel}
+            className="px-5 py-2.5 font-mono text-xs tracking-widest border border-border text-muted-foreground hover:border-[var(--color-lie)] hover:text-[var(--color-lie)] transition-colors"
+          >
+            CANCEL
+          </button>
+          <button
+            onClick={onAccept}
+            className="px-5 py-2.5 font-display tracking-[0.2em] text-xs border border-[var(--color-truth)] text-[var(--color-truth)] hover:bg-[var(--color-truth)] hover:text-[var(--color-primary-foreground)] transition-colors"
+          >
+            I CONSENT — CONTINUE
+          </button>
         </div>
       </div>
     </div>
