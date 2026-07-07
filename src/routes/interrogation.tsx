@@ -99,13 +99,38 @@ function Interrogation() {
     calibStartedAt.current = Date.now();
     setCalibProgress(0);
     noiseFloor.current = 0;
+    setCalibWarning(null);
+    setNoiseAlert(false);
+    setLiveLevel(0);
     setPhase("calibrating");
   };
 
   const finishCalibration = () => {
     const s = calibSamples.current;
-    noiseFloor.current =
+    const mean =
       s.length > 0 ? s.reduce((a, b) => a + b, 0) / s.length : 0;
+    noiseFloor.current = mean;
+
+    // Calibration quality check: flag unreliable ambient measurements.
+    const variance =
+      s.length > 1
+        ? s.reduce((a, b) => a + (b - mean) ** 2, 0) / s.length
+        : 0;
+    const stdDev = Math.sqrt(variance);
+    const cv = mean > 0 ? stdDev / mean : 0;
+    let warning: string | null = null;
+    if (s.length < 10) {
+      warning =
+        "Too few samples captured — the mic may not be delivering audio. Recalibrate.";
+    } else if (mean > 0.08) {
+      warning =
+        "Ambient noise is very high — find a quieter room for reliable readings.";
+    } else if (cv > 0.8 && stdDev > 0.01) {
+      warning =
+        "Noise floor was unstable (someone spoke or a sound occurred). Recalibrate in silence.";
+    }
+    setCalibWarning(warning);
+
     startedAt.current = Date.now();
     voiceSamples.current = [];
     firstSpeechAt.current = 0;
