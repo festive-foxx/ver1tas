@@ -40,6 +40,7 @@ function Interrogation() {
   const calibSamples = useRef<number[]>([]);
   const calibStartedAt = useRef<number>(0);
   const noiseFloor = useRef<number>(0);
+  const [calibWarning, setCalibWarning] = useState<string | null>(null);
 
   const startedAt = useRef<number>(0);
   const voiceSamples = useRef<number[]>([]);
@@ -47,6 +48,10 @@ function Interrogation() {
   const speakingMs = useRef<number>(0);
   const lastVoiceFrameAt = useRef<number>(0);
   const [activitySignal, setActivitySignal] = useState(0);
+
+  // Live noise-floor meter (raw current amplitude during scanning)
+  const [liveLevel, setLiveLevel] = useState(0);
+  const [noiseAlert, setNoiseAlert] = useState(false);
 
   useEffect(() => {
     try {
