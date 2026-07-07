@@ -148,6 +148,8 @@ function Interrogation() {
   };
 
   const handleLevel = (level: number) => {
+    // Report the raw ambient/current amplitude to the live meter.
+    setLiveLevel(level);
     // Subtract the calibrated ambient noise floor so quiet rooms and noisy
     // rooms are measured against the same baseline.
     const adj = Math.max(0, level - noiseFloor.current);
@@ -163,6 +165,8 @@ function Interrogation() {
       setActivitySignal((n) => n + 1);
     } else {
       setSpeaking(false);
+      // When not speaking, a rising floor means the room itself got louder.
+      setNoiseAlert(level > noiseFloor.current + 0.03 && level > 0.05);
     }
   };
 
