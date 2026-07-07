@@ -474,6 +474,49 @@ function Toggle({ label, value, onChange }: { label: string; value: boolean; onC
   );
 }
 
+function NoiseFloorMeter({
+  live,
+  floor,
+  alert,
+}: {
+  live: number;
+  floor: number;
+  alert: boolean;
+}) {
+  // Scale 0..0.3 RMS onto 0..100% for a readable meter.
+  const toPct = (v: number) => Math.min(100, (v / 0.3) * 100);
+  const livePct = toPct(live);
+  const floorPct = toPct(floor);
+  return (
+    <div className="mx-auto max-w-md text-left">
+      <div className="flex justify-between font-mono text-[11px] mb-1">
+        <span className="text-muted-foreground">AMBIENT NOISE FLOOR</span>
+        <span className={alert ? "text-[var(--color-lie)]" : "text-[var(--color-truth)]"}>
+          {alert ? "▲ ROOM GOT LOUDER" : "● STABLE"}
+        </span>
+      </div>
+      <div className="relative h-3 rounded-full bg-black/50 border border-[var(--color-scan)]/30 overflow-hidden">
+        <div
+          className={`h-full transition-[width] duration-75 ${
+            alert ? "bg-[var(--color-lie)]" : "bg-[var(--color-scan)]"
+          }`}
+          style={{ width: `${livePct}%` }}
+        />
+        {/* Calibrated baseline marker */}
+        <div
+          className="absolute top-0 bottom-0 w-px bg-[var(--color-truth)]"
+          style={{ left: `${floorPct}%` }}
+          title="Calibrated baseline"
+        />
+      </div>
+      <div className="mt-1 flex justify-between font-mono text-[10px] text-muted-foreground">
+        <span>now {(live).toFixed(3)}</span>
+        <span className="text-[var(--color-truth)]">baseline {(floor).toFixed(3)}</span>
+      </div>
+    </div>
+  );
+}
+
 function useElapsed(start: number) {
   const [now, setNow] = useState(0);
   useEffect(() => {
