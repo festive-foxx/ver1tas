@@ -40,6 +40,7 @@ function Interrogation() {
   const calibSamples = useRef<number[]>([]);
   const calibStartedAt = useRef<number>(0);
   const noiseFloor = useRef<number>(0);
+  const [calibWarning, setCalibWarning] = useState<string | null>(null);
 
   const startedAt = useRef<number>(0);
   const voiceSamples = useRef<number[]>([]);
@@ -47,6 +48,10 @@ function Interrogation() {
   const speakingMs = useRef<number>(0);
   const lastVoiceFrameAt = useRef<number>(0);
   const [activitySignal, setActivitySignal] = useState(0);
+
+  // Live noise-floor meter (raw current amplitude during scanning)
+  const [liveLevel, setLiveLevel] = useState(0);
+  const [noiseAlert, setNoiseAlert] = useState(false);
 
   useEffect(() => {
     try {
@@ -94,13 +99,38 @@ function Interrogation() {
     calibStartedAt.current = Date.now();
     setCalibProgress(0);
     noiseFloor.current = 0;
+    setCalibWarning(null);
+    setNoiseAlert(false);
+    setLiveLevel(0);
     setPhase("calibrating");
   };
 
   const finishCalibration = () => {
     const s = calibSamples.current;
-    noiseFloor.current =
+    const mean =
       s.length > 0 ? s.reduce((a, b) => a + b, 0) / s.length : 0;
+    noiseFloor.current = mean;
+
+    // Calibration quality check: flag unreliable ambient measurements.
+    const variance =
+      s.length > 1
+        ? s.reduce((a, b) => a + (b - mean) ** 2, 0) / s.length
+        : 0;
+    const stdDev = Math.sqrt(variance);
+    const cv = mean > 0 ? stdDev / mean : 0;
+    let warning: string | null = null;
+    if (s.length < 10) {
+      warning =
+        "Too few samples captured — the mic may not be delivering audio. Recalibrate.";
+    } else if (mean > 0.08) {
+      warning =
+        "Ambient noise is very high — find a quieter room for reliable readings.";
+    } else if (cv > 0.8 && stdDev > 0.01) {
+      warning =
+        "Noise floor was unstable (someone spoke or a sound occurred). Recalibrate in silence.";
+    }
+    setCalibWarning(warning);
+
     startedAt.current = Date.now();
     voiceSamples.current = [];
     firstSpeechAt.current = 0;
@@ -118,6 +148,8 @@ function Interrogation() {
   };
 
   const handleLevel = (level: number) => {
+    // Report the raw ambient/current amplitude to the live meter.
+    setLiveLevel(level);
     // Subtract the calibrated ambient noise floor so quiet rooms and noisy
     // rooms are measured against the same baseline.
     const adj = Math.max(0, level - noiseFloor.current);
@@ -133,6 +165,8 @@ function Interrogation() {
       setActivitySignal((n) => n + 1);
     } else {
       setSpeaking(false);
+      // When not speaking, a rising floor means the room itself got louder.
+      setNoiseAlert(level > noiseFloor.current + 0.03 && level > 0.05);
     }
   };
 
@@ -302,6 +336,20 @@ function Interrogation() {
               <div className="font-display tracking-[0.3em] text-sm text-[var(--color-scan)] animate-flicker">
                 🎙 SPEAK YOUR ANSWER ALOUD
               </div>
+
+              {calibWarning && (
+                <div className="mx-auto max-w-md rounded-md border border-[var(--color-lie)]/60 bg-[var(--color-lie)]/10 px-4 py-2 font-mono text-[11px] text-[var(--color-lie)] text-left">
+                  ⚠ CALIBRATION UNRELIABLE — {calibWarning}
+                </div>
+              )}
+
+              {/* Live noise-floor meter */}
+              <NoiseFloorMeter
+                live={liveLevel}
+                floor={noiseFloor.current}
+                alert={noiseAlert}
+              />
+
               <div className="font-mono text-xs text-muted-foreground">
                 Voiced: {(speakingMs.current / 1000).toFixed(1)}s
               </div>
@@ -423,6 +471,49 @@ function Toggle({ label, value, onChange }: { label: string; value: boolean; onC
     >
       {value ? "● " : "○ "}{label}
     </button>
+  );
+}
+
+function NoiseFloorMeter({
+  live,
+  floor,
+  alert,
+}: {
+  live: number;
+  floor: number;
+  alert: boolean;
+}) {
+  // Scale 0..0.3 RMS onto 0..100% for a readable meter.
+  const toPct = (v: number) => Math.min(100, (v / 0.3) * 100);
+  const livePct = toPct(live);
+  const floorPct = toPct(floor);
+  return (
+    <div className="mx-auto max-w-md text-left">
+      <div className="flex justify-between font-mono text-[11px] mb-1">
+        <span className="text-muted-foreground">AMBIENT NOISE FLOOR</span>
+        <span className={alert ? "text-[var(--color-lie)]" : "text-[var(--color-truth)]"}>
+          {alert ? "▲ ROOM GOT LOUDER" : "● STABLE"}
+        </span>
+      </div>
+      <div className="relative h-3 rounded-full bg-black/50 border border-[var(--color-scan)]/30 overflow-hidden">
+        <div
+          className={`h-full transition-[width] duration-75 ${
+            alert ? "bg-[var(--color-lie)]" : "bg-[var(--color-scan)]"
+          }`}
+          style={{ width: `${livePct}%` }}
+        />
+        {/* Calibrated baseline marker */}
+        <div
+          className="absolute top-0 bottom-0 w-px bg-[var(--color-truth)]"
+          style={{ left: `${floorPct}%` }}
+          title="Calibrated baseline"
+        />
+      </div>
+      <div className="mt-1 flex justify-between font-mono text-[10px] text-muted-foreground">
+        <span>now {(live).toFixed(3)}</span>
+        <span className="text-[var(--color-truth)]">baseline {(floor).toFixed(3)}</span>
+      </div>
+    </div>
   );
 }
 
