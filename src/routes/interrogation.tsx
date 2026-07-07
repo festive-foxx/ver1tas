@@ -336,6 +336,20 @@ function Interrogation() {
               <div className="font-display tracking-[0.3em] text-sm text-[var(--color-scan)] animate-flicker">
                 🎙 SPEAK YOUR ANSWER ALOUD
               </div>
+
+              {calibWarning && (
+                <div className="mx-auto max-w-md rounded-md border border-[var(--color-lie)]/60 bg-[var(--color-lie)]/10 px-4 py-2 font-mono text-[11px] text-[var(--color-lie)] text-left">
+                  ⚠ CALIBRATION UNRELIABLE — {calibWarning}
+                </div>
+              )}
+
+              {/* Live noise-floor meter */}
+              <NoiseFloorMeter
+                live={liveLevel}
+                floor={noiseFloor.current}
+                alert={noiseAlert}
+              />
+
               <div className="font-mono text-xs text-muted-foreground">
                 Voiced: {(speakingMs.current / 1000).toFixed(1)}s
               </div>
