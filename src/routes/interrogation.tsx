@@ -305,7 +305,13 @@ function Interrogation() {
               <div className="font-mono text-xs text-muted-foreground">
                 Voiced: {(speakingMs.current / 1000).toFixed(1)}s
               </div>
-              <div className="flex justify-center">
+              <div className="flex flex-wrap justify-center gap-3">
+                <button
+                  onClick={beginCalibration}
+                  className="px-5 py-3 font-mono text-xs tracking-widest border border-border text-muted-foreground hover:border-[var(--color-scan)] hover:text-[var(--color-scan)] transition-colors"
+                >
+                  ↻ RECALIBRATE MIC
+                </button>
                 <button
                   onClick={handleSubmit}
                   className="px-8 py-3 font-display tracking-[0.3em] text-sm border border-[var(--color-truth)] text-[var(--color-truth)] hover:bg-[var(--color-truth)] hover:text-[var(--color-primary-foreground)] transition-colors"
