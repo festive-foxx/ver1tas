@@ -8,7 +8,7 @@
 
 the browser's Web Audio API shows a real-time audio waveform when the user speaks into their microphone during the test.
 
-- Use local storage (or a mock database) to save past test results so the history tab feels alive and persistent.
+- local storage (or a mock database) saves past test results so the history tab feels alive and persistent.
 
 **Live app**: https://ver1tas.lovable.app
 
